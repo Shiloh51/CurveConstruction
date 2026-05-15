@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vintage-curves"
+version = "0.1.0"
+description = "Vintage performance curves for consumer-loan tapes."
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+    "matplotlib>=3.7",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["vintage_curves"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
