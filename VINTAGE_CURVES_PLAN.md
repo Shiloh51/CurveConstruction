@@ -12,10 +12,10 @@ performance curves, with arbitrary segmentation and standard ABS metrics.
 - Single flat CSV input (one row per loan-month).
 - User-supplied column-name mapping (YAML or dict) → canonical schema.
 - Arbitrary pandas-`query()` style segmentation strings.
-- Configurable default definition: `Charge-Off Date` field **OR** a DPD threshold.
-- Monthly **or** quarterly vintage grouping, anchored on origination date.
+- Configurable default definition: `Charge-Off Date` field **OR** a DPD threshold (sticky — once defaulted, stays defaulted even on cure).
+- Monthly, quarterly, **or** annual vintage grouping, anchored on origination date.
 - MOB = months since origination.
-- Per-vintage curves **and** aggregate curves across vintages, with two weighting schemes (original balance / beginning balance at MOB).
+- Per-vintage curves **and** aggregate curves across vintages, with three weighting schemes (original balance / beginning balance at MOB / equal). Each aggregate is published alongside an `n_vintages` series so consumers can see where support collapses.
 - Truncate each vintage at its maximum observable MOB.
 - Wide matrix output (vintage × MOB) per metric, plus matplotlib plotting and CSV/Excel export.
 - Portfolio summary stats per vintage (WA Coupon, Pool Factor, WAL).
@@ -124,7 +124,7 @@ from vintage_curves import VintageAnalyzer, DefaultPolicy
 va = VintageAnalyzer.from_csv(
     "tape.csv",
     schema="schema.yaml",
-    vintage_freq="Q",                       # "M" or "Q"
+    vintage_freq="Q",                       # "M", "Q", or "A"
     default_policy=DefaultPolicy.charge_off_field(),  # or .dpd_threshold(120)
 )
 
@@ -140,9 +140,12 @@ pool_factor    = seg.curve("pool_factor")
 
 # Aggregate across vintages — one row per MOB
 # weighting: "original" (default) weights each vintage by its original balance;
-#            "beginning" uses begin-of-period balance at each MOB.
+#            "beginning" uses begin-of-period balance at each MOB;
+#            "equal" simple-averages across vintages (sanity check).
+# Every aggregate frame includes an `n_vintages` column showing support at each MOB.
 agg_orig = seg.aggregate(metrics=["cum_gross_loss", "smm", "cdr"], weighting="original")
 agg_bop  = seg.aggregate(metrics=["cum_gross_loss", "smm", "cdr"], weighting="beginning")
+agg_eq   = seg.aggregate(metrics=["cum_gross_loss", "smm", "cdr"], weighting="equal")
 
 # Per-vintage summary stats
 summary = seg.summary()      # wa_coupon, pool_factor_latest, wal, original_count, original_bal
@@ -160,24 +163,39 @@ seg.export_excel("output.xlsx")    # one sheet per metric + summary + rolls
 ## 4. Metric Definitions
 
 Let original balance for vintage v be `OB_v = Σ original_balance` for loans in v.
-Let `bal_{l,t}` be outstanding balance for loan l at MOB t.
+Let `bal_{l,t}` be outstanding (end-of-period) balance for loan l at MOB t.
+
+**Beginning-of-period (BOP) balance** is defined as the prior period's EOP balance,
+with `original_balance` substituted at MOB 1 (and MOB 0 treated as the origination
+snapshot). If the tape has a gap for a loan-month, BOP for the next observed month
+falls back to the most recent prior EOP; gaps are flagged in a load-time diagnostic.
+
+**Performing-loan set** at MOB t for vintage v: all loans in v that have not
+defaulted (per the active `DefaultPolicy`) and have not fully prepaid as of the
+start of period t. Defaults are **sticky**: once a loan defaults, it is removed
+from the performing set for all subsequent MOBs regardless of any later cure.
 
 ### Per-vintage curves
 - **Cumulative gross loss %** `cum_gross_loss_{v,t} = (Σ_{l∈v, mob≤t} charge_off_amount_l) / OB_v`
-- **Cumulative prepayments %** `cum_prepay_{v,t} = (Σ unscheduled principal) / OB_v` where unscheduled = `principal_payment − scheduled_principal` (floored at 0).
-- **SMM (Single Monthly Mortality)** at MOB t for vintage v:
-  `SMM_{v,t} = unscheduled_principal_{v,t} / (begin_bal_{v,t} − scheduled_principal_{v,t})`
+- **Cumulative prepayments %** `cum_prepay_{v,t} = (Σ unscheduled principal) / OB_v` where unscheduled = `principal_payment − scheduled_principal` (floored at 0), summed **only over performing loan-months** — the default month and all later months for a defaulted loan are excluded from the prepay numerator so charge-off write-downs are never counted as prepays.
+- **SMM (Single Monthly Mortality)** at MOB t for vintage v, restricted to performing loans:
+  `SMM_{v,t} = unscheduled_principal_{v,t} / (BOP_bal_{v,t} − scheduled_principal_{v,t} − default_bal_{v,t})`
+  where `default_bal_{v,t}` is the BOP balance of loans that default during period t (PSA convention — keeps prepay rate uncontaminated by defaults).
 - **CPR (annualized)** `CPR_{v,t} = 1 − (1 − SMM_{v,t})^12`
-- **CDR (annualized)** Default $ in MOB t divided by begin-of-period scheduled balance, then `1 − (1 − MDR)^12`.
+- **MDR / CDR (annualized)** `MDR_{v,t} = default_bal_{v,t} / BOP_bal_performing_{v,t}`, then `CDR_{v,t} = 1 − (1 − MDR_{v,t})^12`. Denominator is the BOP **actual** balance of performing loans for vintage v (same set used for SMM, before the scheduled-principal carve-out).
 - **Pool Factor** `pool_factor_{v,t} = (Σ bal_{l,t}) / OB_v`
 - **WA Coupon** balance-weighted `apr` at MOB t (matrix or single per-vintage value)
-- **WAL** (weighted average life, per vintage, over realized cashflows): `Σ t · principal_received_t / Σ principal_received_t`, in months.
+- **WAL** per vintage, in months. Two flavors are emitted side-by-side because realized-only WAL is biased downward by defaults/prepays:
+  - `wal_realized`: `Σ t · principal_received_t / Σ principal_received_t` over observed history.
+  - `wal_scheduled`: same formula but using the **scheduled** principal stream (level-pay implied by `original_balance`, `apr`, `original_term`), ignoring defaults and prepays.
 
 ### Default policy
 - `DefaultPolicy.charge_off_field()`: a loan defaults in the month its `charge_off_date` falls; loss = `charge_off_amount`.
-- `DefaultPolicy.dpd_threshold(n)`: a loan defaults the first MOB where `days_past_due ≥ n`; loss = outstanding_balance at that month (gross). Subsequent months for that loan are excluded from active denominators.
+- `DefaultPolicy.dpd_threshold(n)`: a loan defaults the first MOB where `days_past_due ≥ n`; loss = **EOP `outstanding_balance` of the default month** (gross).
+- **Stickiness**: under either policy, once a loan is flagged defaulted it stays defaulted for all subsequent MOBs even if it later cures. The loan is removed from performing denominators (SMM, CDR, pool factor performing-share) from the default month forward.
+- **Coexistence of fields**: if the user selects `dpd_threshold(n)` but the tape **also** populates `charge_off_date` on some loans, schema validation raises by default. The user can pass `on_conflict="charge_off_wins"` or `"dpd_wins"` to resolve explicitly; the resolution choice is logged.
 
-### Aggregate across vintages (two weighting schemes)
+### Aggregate across vintages (three weighting schemes)
 
 For metric M at MOB t, restricted to vintages where MOB t is observable:
 
@@ -191,7 +209,9 @@ For metric M at MOB t, restricted to vintages where MOB t is observable:
   - Flow / rate metrics: numerator = Σ_v flow$_{v,t}; denominator = Σ_v BOP_{v,t} (or `BOP − scheduled_principal` for SMM, consistent with the per-vintage definition).
   - Interpretation: "the average outstanding dollar's instantaneous behavior" — reweights toward vintages that still have balance at MOB t. Useful for current-portfolio behavior; CPR/CDR comparisons can differ noticeably from the original-weighted view late in a curve.
 
-Both views are always available; Excel export can emit each as a separate sheet.
+- **`weighting="equal"`** — simple unweighted average of `M_{v,t}` across vintages observable at MOB t. Useful as a sanity check against original-weighted aggregates that one large vintage can dominate.
+
+All three views are always available; Excel export emits each as a separate sheet. Every aggregate frame carries an `n_vintages` column (count of vintages contributing at each MOB) so users can see exactly where support thins out.
 
 ### Truncation
 For each vintage v with last `as_of_date = T_v`, the maximum observable MOB is
@@ -199,7 +219,7 @@ For each vintage v with last `as_of_date = T_v`, the maximum observable MOB is
 (and dropped from aggregate denominators for that MOB).
 
 ### Delinquency buckets & roll rates
-Buckets: `Current` (DPD=0), `1-29`, `30-59`, `60-89`, `90+`, `CO`.
+Buckets: `Current` (DPD=0–29), `30-59`, `60-89`, `90+`, `CO`. (Standard consumer-credit convention folds 1–29 DPD into Current; the bucket boundaries are configurable on `roll_rates(...)` for users who want finer-grained early-stage tracking.)
 Transition matrix: count or balance share moving from bucket_i (MOB t) →
 bucket_j (MOB t+1), normalized within row. Optionally per-MOB or pooled.
 
@@ -210,14 +230,14 @@ bucket_j (MOB t+1), normalized within row. Optionally per-MOB or pooled.
 - **Engine**: pandas. Group operations are vectorized; one merge of loan-level
   attrs onto perf at load time, then group by `vintage` / `mob`.
 - **MOB**: `mob = (as_of_date.year - orig.year) * 12 + (as_of_date.month - orig.month)`.
-- **Vintage**: `vintage = orig.to_period("M" or "Q")`.
+- **Vintage**: `vintage = orig.to_period("M", "Q", or "A")` (calendar quarters/years, not fiscal).
+- **BOP balance**: derived once at load time as the prior period's EOP `outstanding_balance` per loan, with `original_balance` used at MOB 1. Stored as a column `bop_balance` on the perf frame. Gaps in the per-loan monthly sequence are flagged in a load diagnostic.
 - **Memory hook**: load function accepts `usecols`, `dtype`, and `chunksize`
   parameters as future swap-in points (documented, not exercised in v1).
-- **Required performance columns**: `scheduled_principal` is required — if the
-  column is missing or all-NaN, schema validation raises a hard error rather
-  than silently falling back to a computed level-pay schedule. (Users who
-  need a fallback can precompute the column before handing the tape to the
-  analyzer.)
+- **Required columns** (hard-fail in schema validation if missing or all-NaN):
+  loan-level — `loan_id`, `origination_date`, `original_balance`, `original_term`, `apr`;
+  perf-level — `as_of_date`, `outstanding_balance`, `scheduled_principal`, `principal_payment`, `days_past_due`.
+  No silent fallback to a computed level-pay schedule for `scheduled_principal`; users needing that must precompute the column.
 - **Sign conventions**: payments positive, balances non-negative.
 - **Plotting**: each `plot_curves` returns a `matplotlib.figure.Figure`. One
   line per vintage; aggregate overlaid in bold black when `include_agg=True`.
@@ -230,7 +250,9 @@ bucket_j (MOB t+1), normalized within row. Optionally per-MOB or pooled.
 - 3 vintages × 50 loans each, 60-month term, 12% APR.
 - Configurable default rate per vintage to produce known cum-loss curves.
 - A few prepays per vintage to produce a known CPR.
-- Unit tests assert metric values to within 1e-6 of analytical expectations.
+- Seeded RNG for full determinism.
+- Unit tests assert metric values with relative tolerance `1e-9` for stock metrics (cum loss, pool factor) and `1e-6` for annualized rate metrics (CPR/CDR) to absorb the `1−(1−x)^12` float drift.
+- Explicit fixtures for: (a) a loan that cures after crossing the DPD threshold (verifies stickiness), (b) a default-month with nonzero `principal_payment` (verifies prepay numerator exclusion), (c) a vintage that doesn't reach the max MOB (verifies `n_vintages` reporting).
 
 ---
 
