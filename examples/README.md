@@ -4,7 +4,7 @@ A small deterministic synthetic tape for exercising the vintage-curves plan.
 
 ## Files
 - `generate_sample_tape.py` — deterministic generator (seed `20260515`).
-- `sample_tape.csv` — 45 loans × 3 quarterly vintages (2024Q1 / Q2 / Q3), 36-month term, monthly observations through 2026-04-30. Vendor-style (non-canonical) column names so the schema mapper has real work to do.
+- `sample_tape.csv` — 33,600 loans (11,200 per vintage) × 3 quarterly vintages (2024Q1 / Q2 / Q3), 36-month term, monthly observations through 2026-04-30. ~749k loan-month rows, ~93 MB. Vendor-style (non-canonical) column names so the schema mapper has real work to do.
 - `schema.yaml` — mapping from the tape's columns to the canonical schema.
 
 ## What's in it

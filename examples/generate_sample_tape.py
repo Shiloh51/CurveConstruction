@@ -18,7 +18,7 @@ SEED = 20260515
 OUT = Path(__file__).parent / "sample_tape.csv"
 
 VINTAGES = [date(2024, 1, 1), date(2024, 4, 1), date(2024, 7, 1)]
-LOANS_PER_VINTAGE = 15
+LOANS_PER_VINTAGE = 11_200
 TERM_MONTHS = 36
 APR = 0.1499
 AS_OF_END = date(2026, 4, 30)  # observation horizon
