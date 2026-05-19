@@ -30,7 +30,7 @@ def test_segment_curve_and_aggregate(analyzer: VintageAnalyzer) -> None:
     seg = analyzer.segment("fico >= 700", label="prime+")
     cgl = seg.curve("cum_gross_loss")
     assert isinstance(cgl, pd.DataFrame)
-    assert cgl.shape[0] == 3  # three vintages
+    assert cgl.shape[0] == 6  # six vintages
 
     agg = seg.aggregate(["cum_gross_loss", "cpr", "cdr"], weighting="original")
     assert {"cum_gross_loss", "cpr", "cdr", "n_vintages"}.issubset(agg.columns)
@@ -40,8 +40,8 @@ def test_segment_curve_and_aggregate(analyzer: VintageAnalyzer) -> None:
 def test_summary_and_rolls(analyzer: VintageAnalyzer) -> None:
     seg = analyzer.all()
     summ = seg.summary()
-    assert summ.shape == (3, 6)
-    assert (summ["original_count"] == 11_200).all()
+    assert summ.shape == (6, 6)
+    assert (summ["original_count"] == 4_000).all()
 
     rolls = seg.roll_rates(by_mob=False, weight="count")
     # Each row sums to 0 or 1

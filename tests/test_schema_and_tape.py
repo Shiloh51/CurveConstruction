@@ -26,8 +26,8 @@ def tape() -> LoanTape:
 
 
 def test_sample_tape_loads(tape: LoanTape) -> None:
-    assert tape.n_loans == 33_600
-    assert tape.n_loan_months == 748_966
+    assert tape.n_loans == 24_000
+    assert tape.n_loan_months == 654_811
 
 
 def test_required_columns_present(tape: LoanTape) -> None:

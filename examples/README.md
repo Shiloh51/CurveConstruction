@@ -4,14 +4,20 @@ A small deterministic synthetic tape for exercising the vintage-curves plan.
 
 ## Files
 - `generate_sample_tape.py` — deterministic generator (seed `20260515`).
-- `sample_tape.csv` — 33,600 loans (11,200 per vintage) × 3 quarterly vintages (2024Q1 / Q2 / Q3), 36-month term, monthly observations through 2026-04-30. ~749k loan-month rows, ~93 MB. Vendor-style (non-canonical) column names so the schema mapper has real work to do.
+- `sample_tape.csv` — 24,000 loans across 4 cohorts × 6 quarterly vintages (2023Q1 – 2024Q2), monthly observations through 2026-04-30. ~655k loan-month rows. Vendor-style (non-canonical) column names so the schema mapper has real work to do.
 - `schema.yaml` — mapping from the tape's columns to the canonical schema.
 
 ## What's in it
-- ~10% / 15% / 5% default rates across the three vintages (defaults concentrated in MOB 6–18, with a 30→60→90→120 DPD ramp and a charge-off in the 120 DPD month).
-- ~6% / 4% / 8% annualized voluntary-prepay rates (full prepay, geometric draw from SMM).
-- Realistic level-pay amortization at 14.99% APR.
-- FICO 620–800, DTI 0.10–0.45, eight states, single `PersonalLoan` product.
+Four cohorts, 1,000 loans per cohort per vintage. Lifetime default rate (DR) is the probability a loan charges off; defaults follow a 30→60→90→120 DPD ramp with charge-off in the 120-DPD month. Voluntary prepays are a geometric draw from monthly SMM:
+
+| Product    | FICO    | Lifetime DR | Annual CPR | APR     |
+|------------|---------|-------------|------------|---------|
+| Standard36 | 680–719 | 13%         | 8%         | 15.99%  |
+| Standard36 | 720–759 | 6%          | 10%        | 11.99%  |
+| Standard60 | 680–719 | 22%         | 5%         | 17.99%  |
+| Standard60 | 720–759 | 11%         | 7%         | 13.99%  |
+
+Defaults concentrate in MOB 6–18 (36-mo) or 8–30 (60-mo). DTI 0.10–0.45, eight states, level-pay amortization.
 
 ## Regenerate
 ```

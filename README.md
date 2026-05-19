@@ -54,4 +54,4 @@ pytest
 ```
 
 The full suite includes a hand-derived analytical fixture for every metric
-plus end-to-end coverage on the bundled 749k-row synthetic tape.
+plus end-to-end coverage on the bundled ~655k-row synthetic tape.
