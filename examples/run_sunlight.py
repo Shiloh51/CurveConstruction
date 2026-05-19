@@ -28,7 +28,7 @@ from vintage_curves import DefaultPolicy, VintageAnalyzer
 # ----------------------------------------------------------------- config
 # Update TAPE_FILENAME to match your actual file name in sunlight_test/.
 SUNLIGHT_DIR = Path(r"C:\Users\aesses\CurveConstruction\sunlight_test")
-TAPE_FILENAME = "sunlight_tape.csv"   # <-- change if your file is named differently
+TAPE_FILENAME = "SLF_Full.csv"        # <-- change if your file is named differently
 SCHEMA_FILENAME = "sunlight_schema.yaml"
 
 # Canonical column names after schema mapping. If your schema maps the
@@ -41,7 +41,7 @@ FICO_BUCKETS = [
     ("fico_720_759",  "720 <= fico <= 759"),
     ("fico_760_plus", "fico >= 760"),
 ]
-TERMS = [60, 120, 144, 180]
+TERMS = [36, 60, 120, 144, 180]
 METRICS = ["cum_gross_loss", "pool_factor", "cpr"]
 
 
