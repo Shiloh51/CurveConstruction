@@ -1,0 +1,27 @@
+# Maps cohort_tape.csv vendor column names -> canonical names from the plan.
+# Pass this path to VintageAnalyzer.from_csv(..., schema="examples/cohort_schema.yaml").
+
+# Loan-level
+loan_id: LoanNumber
+origination_date: OrigDt
+original_balance: OrigUPB
+apr: NoteRate
+original_term: OrigTerm
+product_type: Product
+
+# Borrower-level
+fico: BorrowerFICO
+dti: BorrowerDTI
+income: BorrowerIncome
+state: BorrowerState
+
+# Performance
+as_of_date: ReportingPeriod
+outstanding_balance: EndingBalance
+scheduled_principal: SchedPrincipal
+principal_payment: PrincipalPaid
+interest_payment: InterestPaid
+fees_paid: FeesPaid
+days_past_due: DPD
+charge_off_date: ChargeOffDt
+charge_off_amount: ChargeOffAmt
